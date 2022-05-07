@@ -119,6 +119,9 @@ const App = () => {
   // request annotation column
   const [reqAnnotation, setReqAnnotation] = useState(null);
 
+  // open in new session
+  const [newSubsetSessionState, setNewSubsetSessionState] = useState(false);
+
   // props for dialogs
   const loadingProps = {
     autoFocus: true,
@@ -131,10 +134,10 @@ const App = () => {
   };
 
   const { setWasmInitialized, wasmInitialized,
-    setGenesInfo, initLoadState, tabSelected,
+    setGenesInfo, initLoadState, tabSelected, setTabSelected,
     datasetName, params, loadParams,
     setGeneColSel, setLoadParams,
-    setInitLoadState, inputFiles, annotationCols, setAnnotationCols,
+    setInitLoadState, inputFiles, setInputFiles, annotationCols, setAnnotationCols,
     annotationObj, setAnnotationObj, preInputFiles,
     setPreInputFilesStatus } = useContext(AppContext);
 
@@ -281,6 +284,25 @@ const App = () => {
     }
   }, [indexedDBState]);
 
+
+  // open subset in new session
+  useEffect(() => {
+
+    if (newSubsetSessionState) {
+      scranWorker.postMessage({
+        "type": "NEW_SUBSET_SESSION",
+        "payload": {
+          "indices": newSubsetSessionState
+        },
+      });
+
+      AppToaster.show({ icon: "one-to-many", intent: "primary", message: "Opening subset in a new session" });
+      add_to_logs("info", `--- Open subset in new session initialized ---`);
+    } else {
+      inputFiles?.files && AppToaster.show({ icon: "one-to-many", intent: "primary", message: "New session opened!" });
+    }
+  }, [newSubsetSessionState]);
+
   // get annotation for a column from worker
   useEffect(() => {
 
@@ -395,6 +417,37 @@ const App = () => {
       if (resp !== undefined) {
         setKanaIDBRecs(resp);
       }
+
+      // routes 
+      let search = window.location.search;
+      let params = new URLSearchParams(search);
+
+      // IndexedDB ID found in the url
+      // app is pointing to a local version of indexeddb file
+      let idb_id = params.get("kanadb_id");
+      if (idb_id) {
+        add_to_logs("start", `load state from browser: (id: ${idb_id})`, "started");
+
+        let all_ids = resp.map(x => x.id);
+        if (all_ids.indexOf(idb_id) == -1) {
+          setScranError({
+            type: payload.type,
+            msg: `cannot find indexeddb record with ${idb_id}`,
+            fatal: true
+          });
+
+          return;
+        }
+
+        let tfiles = [{
+          "format": "kanadb",
+          file: idb_id
+        }];
+
+        setTabSelected("load");
+        setInputFiles(tfiles);
+      }
+
       setIndexedDBState(false);
     } else if (payload.type === "inputs_DATA") {
       setInitDims(`${payload.resp.dimensions.num_genes} genes, ${payload.resp.dimensions.num_cells} cells`);
@@ -510,10 +563,10 @@ const App = () => {
         index[resp.ordering[i]] = i;
         records.push({
           "gene": resp?.ordering?.[i],
-          "mean": isNaN(x) ? 0: parseFloat(x.toFixed(2)),
-          "delta": isNaN(x) ? 0: parseFloat(resp?.delta_detected?.[i].toFixed(2)),
-          "lfc": isNaN(x) ? 0: parseFloat(resp?.lfc?.[i].toFixed(2)),
-          "detected": isNaN(x) ? 0: parseFloat(resp?.detected?.[i].toFixed(2)),
+          "mean": isNaN(x) ? 0 : parseFloat(x.toFixed(2)),
+          "delta": isNaN(x) ? 0 : parseFloat(resp?.delta_detected?.[i].toFixed(2)),
+          "lfc": isNaN(x) ? 0 : parseFloat(resp?.lfc?.[i].toFixed(2)),
+          "detected": isNaN(x) ? 0 : parseFloat(resp?.detected?.[i].toFixed(2)),
           "expanded": false,
           "expr": null,
         });
@@ -588,6 +641,8 @@ const App = () => {
       setShowNClusLoader(false);
     } else if (payload.type === "cell_labelling_CACHE") {
       setShowCellLabelLoader(false);
+    } else if (payload.type === "NEW_SUBSET_SESSION_DATA") {
+      newSubsetSessionState(false);
     }
   }
 
@@ -635,6 +690,7 @@ const App = () => {
                   setClusterColors={setClusterColors}
                   setDelCustomSelection={setDelCustomSelection}
                   setReqAnnotation={setReqAnnotation}
+                  setNewSubsetSessionState={setNewSubsetSessionState}
                 /> :
                 showGame ?
                   <div style={{
